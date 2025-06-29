@@ -1,68 +1,196 @@
-import { SafeAreaView, Text, View, StyleSheet, StatusBar, TouchableOpacity } from "react-native";
-import { Image } from "react-native";
-import { Feather } from "@expo/vector-icons";
-import { CameraView, useCameraPermissions } from 'expo-camera';
-import { useState } from 'react';
+import {
+  SafeAreaView,
+  Text,
+  View,
+  StyleSheet,
+  StatusBar,
+  TouchableOpacity,
+  TextInput,
+  Alert,
+  ScrollView,
+} from "react-native";
+import { useState, useEffect } from "react";
+import { useRouter } from "expo-router";
+import Slider from "@react-native-community/slider";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 
 export default function Index() {
-  const [difficulty, setDifficulty] = useState('Easy');
-  const [permission, requestPermission] = useCameraPermissions();
-  const [showCamera, setShowCamera] = useState(true);
+  const [username, setUsername] = useState("");
+  const [apiUrl, setApiUrl] = useState("");
+  const [role, setRole] = useState("random");
+  const [difficulty, setDifficulty] = useState("easy");
+  const [numAgents, setNumAgents] = useState(2);
+  const router = useRouter();
 
-  if (!permission) {
-    // Kamera-Berechtigungen werden geladen
-    return <View />;
-  }
+  useEffect(() => {
+    const loadData = async () => {
+      const storedUsername = await AsyncStorage.getItem("username");
+      if (storedUsername) setUsername(storedUsername);
+      const storedApiUrl = await AsyncStorage.getItem("apiUrl");
+      if (storedApiUrl) setApiUrl(storedApiUrl);
+    };
+    loadData();
+  }, []);
 
-  if (!permission.granted) {
-    // Keine Berechtigung erteilt
-    requestPermission();
-    return (
-      <SafeAreaView style={styles.container}>
-        <StatusBar barStyle="light-content" />
-        <View style={styles.topBar}>
-          <Image source={require('../assets/images/react-logo.png')} style={styles.logo} />
-          <Text style={styles.title}>ImposterAI</Text>
-          <Feather name="settings" size={24} color="white"/>
-        </View>
-        <View style={styles.cameraContainer}>
-          <Text style={styles.permissionText}>Kamera-Berechtigung wird angefordert...</Text>
-        </View>
-      </SafeAreaView>
+  const handleJoinGame = async () => {
+    if (!username.trim()) {
+      Alert.alert("Error", "Please enter your name.");
+      return;
+    }
+    if (!apiUrl.trim()) {
+      Alert.alert("Error", "Please enter the API URL.");
+      return;
+    }
+
+    await AsyncStorage.setItem("username", username);
+    await AsyncStorage.setItem("apiUrl", apiUrl);
+
+    const finalRole =
+      role === "random"
+        ? Math.random() < 0.5
+          ? "crewmate"
+          : "imposter"
+        : role;
+
+    console.log(
+      `[IndexScreen] Creating lobby for user: ${username} with role: ${finalRole}, difficulty: ${difficulty}, num_agents: ${numAgents}`
     );
-  }
+    try {
+      const response = await fetch(`http://${apiUrl}/lobby`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          player_name: username,
+          player_role: finalRole,
+          num_agents: numAgents,
+          difficulty: difficulty,
+          secret_word: finalRole === "crewmate" ? "apple" : "", // Example secret word
+        }),
+      });
+
+      console.log(
+        `[IndexScreen] Lobby creation response status: ${response.status}`
+      );
+      if (!response.ok) {
+        const errorText = await response.text();
+        console.error(`[IndexScreen] Failed to create lobby: ${errorText}`);
+        throw new Error("Failed to create lobby.");
+      }
+
+      const { lobby_id, secret_word } = await response.json();
+      console.log(`[IndexScreen] Lobby created with ID: ${lobby_id}`);
+
+      router.push({
+        pathname: "/chat",
+        params: { lobby_id, name: username, secret_word, role: finalRole },
+      });
+    } catch (error) {
+      console.error("[IndexScreen] Lobby creation error:", error);
+      Alert.alert("Error", "Could not create lobby.");
+    }
+  };
 
   return (
     <SafeAreaView style={styles.container}>
       <StatusBar barStyle="light-content" />
-      <View style={styles.topBar}>
-        <Image source={require('../assets/images/react-logo.png')} style={styles.logo} />
-        <Text style={styles.title}>ImposterAI</Text>
-        <Feather name="settings" size={24} color="white"/>
-      </View>
-
-      <View style={styles.contentWrapper}>
+      <ScrollView contentContainerStyle={styles.contentWrapper}>
         <View style={styles.settingsCard}>
+          <Text style={styles.title}>ImposterAI</Text>
+          <TextInput
+            style={styles.input}
+            placeholder="Enter your name"
+            placeholderTextColor="#888"
+            value={username}
+            onChangeText={setUsername}
+          />
+          <TextInput
+            style={styles.input}
+            placeholder="Enter API URL (e.g., janoschpc:8080)"
+            placeholderTextColor="#888"
+            value={apiUrl}
+            onChangeText={setApiUrl}
+          />
+          <Text style={styles.sectionTitle}>Your Role</Text>
+          <View style={styles.buttonGroup}>
+            <TouchableOpacity
+              style={[
+                styles.button,
+                role === "crewmate" && styles.activeButton,
+              ]}
+              onPress={() => setRole("crewmate")}
+            >
+              <Text style={styles.buttonText}>Crewmate</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[styles.button, role === "random" && styles.activeButton]}
+              onPress={() => setRole("random")}
+            >
+              <Text style={styles.buttonText}>Random</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[
+                styles.button,
+                role === "imposter" && styles.activeButton,
+              ]}
+              onPress={() => setRole("imposter")}
+            >
+              <Text style={styles.buttonText}>Imposter</Text>
+            </TouchableOpacity>
+          </View>
+
           <Text style={styles.sectionTitle}>AI Difficulty</Text>
           <View style={styles.buttonGroup}>
-            <TouchableOpacity style={styles.button} onPress={() => setDifficulty("Easy") }>
+            <TouchableOpacity
+              style={[
+                styles.button,
+                difficulty === "easy" && styles.activeButton,
+              ]}
+              onPress={() => setDifficulty("easy")}
+            >
               <Text style={styles.buttonText}>Easy</Text>
             </TouchableOpacity>
-            <TouchableOpacity style={styles.button} onPress={() => setDifficulty("Medium")}>
+            <TouchableOpacity
+              style={[
+                styles.button,
+                difficulty === "medium" && styles.activeButton,
+              ]}
+              onPress={() => setDifficulty("medium")}
+            >
               <Text style={styles.buttonText}>Medium</Text>
             </TouchableOpacity>
-            <TouchableOpacity style={styles.button} onPress={() => setDifficulty("Hard")}>
+            <TouchableOpacity
+              style={[
+                styles.button,
+                difficulty === "hard" && styles.activeButton,
+              ]}
+              onPress={() => setDifficulty("hard")}
+            >
               <Text style={styles.buttonText}>Hard</Text>
             </TouchableOpacity>
           </View>
-        </View>
-      </View>
 
-      {showCamera && (
-        <View style={styles.cameraContainer}>
-          <CameraView style={styles.camera} facing="front" />
+          <Text style={styles.sectionTitle}>
+            Number of Agents: {numAgents}
+          </Text>
+          <Slider
+            style={{ width: "100%", height: 40, marginBottom: 15 }}
+            minimumValue={1}
+            maximumValue={5}
+            step={1}
+            value={numAgents}
+            onValueChange={setNumAgents}
+            minimumTrackTintColor="#FF4500"
+            maximumTrackTintColor="#FFFFFF"
+            thumbTintColor="#FF4500"
+          />
+
+          <TouchableOpacity style={styles.startButton} onPress={handleJoinGame}>
+            <Text style={styles.startButtonText}>Join Game</Text>
+          </TouchableOpacity>
         </View>
-      )}
+      </ScrollView>
     </SafeAreaView>
   );
 }
@@ -70,75 +198,71 @@ export default function Index() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#121212',
-  },
-  topBar: {
-    height: 170,
-    width: '100%',
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: 20,
-  },
-  logo: {
-    width: 40,
-    height: 40,
+    backgroundColor: "#121212",
   },
   title: {
-    color: 'white',
-    textAlign: 'center',
+    color: "white",
+    textAlign: "center",
     fontSize: 24,
-    fontWeight: 'bold',
-    paddingHorizontal: 20,
-  },
-  cameraContainer: {
-    flex: 1,
-    margin: 20,
-    borderRadius: 20,
-    overflow: 'hidden',
-  },
-  camera: {
-    flex: 1,
-  },
-  permissionText: {
-    color: 'white',
-    textAlign: 'center',
-    marginTop: 20,
+    fontWeight: "bold",
+    marginBottom: 20,
   },
   contentWrapper: {
-    paddingHorizontal: 20,
+    padding: 20,
+    justifyContent: "center",
+    flex: 1,
   },
   settingsCard: {
-    backgroundColor: '#2A2A2A',
-    borderRadius: 20, // 20
-    padding: 20, // 20
-    minHeight: 100, // 100+
-    
+    backgroundColor: "#2A2A2A",
+    borderRadius: 20,
+    padding: 20,
+  },
+  input: {
+    backgroundColor: "#1E1E1E",
+    color: "white",
+    borderRadius: 10,
+    padding: 15,
+    fontSize: 16,
+    marginBottom: 20,
   },
   sectionTitle: {
-    color: 'white',
+    color: "white",
     fontSize: 18,
-    fontWeight: '500',
-    marginBottom: 15, // 10
-    textAlign: 'center',
+    fontWeight: "500",
+    marginBottom: 15,
+    textAlign: "center",
   },
   buttonGroup: {
-    backgroundColor: '#1E1E1E',
+    backgroundColor: "#1E1E1E",
     borderRadius: 10,
-    //height: 50,
-    flexDirection: 'row',
-    overflow: 'hidden',
+    flexDirection: "row",
+    overflow: "hidden",
+    marginBottom: 20,
   },
   button: {
     flex: 1,
-    paddingVertical: 10,
-    alignItems: 'center',
-    justifyContent: 'center',
-    //borderRadius: 10,
+    paddingVertical: 12,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  activeButton: {
+    backgroundColor: "#FF4500",
   },
   buttonText: {
-    color: 'white',
+    color: "white",
     fontSize: 16,
-    fontWeight: 'bold',
+    fontWeight: "bold",
+  },
+  startButton: {
+    backgroundColor: "#FF4500",
+    borderRadius: 10,
+    paddingVertical: 15,
+    alignItems: "center",
+    marginTop: 20,
+  },
+  startButtonText: {
+    color: "#FFFFFF",
+    fontSize: 18,
+    fontWeight: "bold",
   },
 });
